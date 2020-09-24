@@ -1,0 +1,11 @@
+{
+	"rule": {
+		"ExtraFoodProduce": {
+			"values": {
+				"0": {
+					"val": 2
+				}
+			}
+		}
+	}
+}
