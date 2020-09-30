@@ -54,6 +54,7 @@ var lossMessage = "";
  * Incremented once per call to regularUpdate. Used for sending messages irregularly.
  */
 var UPDATE_INDEX = 0;
+var YEAR_INDEX = 0;
 
 var playerData : Array<{p:Player, sheeps:Int, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool}> = [];
 var hostPlayer = null;
@@ -64,6 +65,7 @@ function init() {
 }
 
 function onFirstLaunch() {
+
 	if(isHost()) {
 		hostPlayer = me();
 
@@ -92,6 +94,40 @@ function onFirstLaunch() {
 	}
 
 	ME_ARGS.push(me());
+}
+
+function updateDescriptionOfMod() {
+	var year = timeToYears(state.time);
+	state.scriptDesc =
+		"<p>"
+			+ "Your goal is to be the most famous and fluffy sheep in all the land! Ok, well, you do not have to be both, but that be cool, right? You win if you get 100 sheep or 1500 fame."
+		+ "</p>"
+		+ "<br />"
+		+ "<p align='center'><font face='BigTitle'>Current Rewards</font></p>"
+		+ "<p><font face='Title'>Resources                Units</font></p>"
+		+ "<p>"
+	;
+
+	// var index = 0;
+	// while(index < max(CHOOSE_RES.length, CHOOSE_UNIT.length)) {
+
+	// }
+	for(r in CHOOSE_RES){
+		state.scriptDesc += "<b>" + r.name + ":</b> " + computeTotalReward(r.amt, r.mul) + "<br />";
+	}
+
+	state.scriptDesc +=
+		"</p>"
+		+ "<br />"
+		+ "<p><font face='Title'>Units</font></p>"
+		+ "<p>"
+	;
+
+	for(u in CHOOSE_UNIT){
+		state.scriptDesc += "<b>" + u.name + ":</b> " + computeTotalReward(u.amt, u.mul) + "<br />";
+	}
+
+	state.scriptDesc += "</p>";
 }
 
 /**
@@ -311,6 +347,14 @@ function checkNewChoices() {
 				}
 			}
 		}
+	}
+
+	if(YEAR_INDEX < timeToYears(state.time)) {
+		updateDescriptionOfMod();
+		for(p in state.players) {
+			p.genericNotify("Rewards are updated! Check the mod tab under the Victory Screen for details.");
+		}
+		YEAR_INDEX++;
 	}
 }
 
