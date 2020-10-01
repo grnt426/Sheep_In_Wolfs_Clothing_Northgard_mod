@@ -25,6 +25,9 @@ var WARRIOR_REWARD = {type:Unit.Warrior, 				amt:2.0, mul:1.0, cb:"chooseWarrior
 var AXE_WIELDER_REWARD = {type:Unit.AxeWielder, 		amt:2.0, mul:1.0, cb:"chooseAxeWielder", name:"Axe Wielders"};
 var SHIELD_BEARER_REWARD = {type:Unit.ShieldBearer, 	amt:2.0, mul:1.0, cb:"chooseShieldBearer", name:"Shield Bearers"};
 var SHEEP_REWARD = {type:Unit.Sheep, 					amt:2.0, mul:2.0, cb:"chooseSheep", name:"Sheep"};
+var SPECTER_REWARD = {type:Unit.SpecterWarrior, 		amt:2.0, mul:1.0, cb:"chooseSpecterWarrior", name:"Specter Warriors"};
+var SKIRMISHER_REWARD = {type:Unit.Skirmisher, 			amt:3.0, mul:1.25, cb:"chooseSkirmisher", name:"Skirmishers"};
+var KOBOLD_REWARD = {type:Unit.Kobold, 					amt:3.0, mul:1.5, cb:"chooseKobold", name:"Kobolds"};
 
 var CHOOSE_UNIT = [
 	VILLAGER_REWARD,
@@ -32,6 +35,9 @@ var CHOOSE_UNIT = [
 	SHIELD_BEARER_REWARD,
 	AXE_WIELDER_REWARD,
 	WARRIOR_REWARD,
+	SPECTER_REWARD,
+	SKIRMISHER_REWARD,
+	KOBOLD_REWARD,
 ];
 
 var MAX_YEAR_MUL = 5;
@@ -56,7 +62,10 @@ var lossMessage = "";
 var UPDATE_INDEX = 0;
 var YEAR_INDEX = 0;
 
-var playerData : Array<{p:Player, sheeps:Int, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool}> = [];
+var playerData : Array<{p:Player, sheeps:Int, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool, ocean:Int, resChoiceMade:Bool, unitChoiceMade:Bool}> = [];
+var oceans = [{home:100, ocean:107}, {home:88, ocean:83}, {home:66, ocean:63},
+				{home:47, ocean:41}, {home:22, ocean:19}, {home:34, ocean:40},
+				{home:55, ocean:62}, {home:77, ocean:84}];
 var hostPlayer = null;
 
 function init() {
@@ -78,7 +87,7 @@ function onFirstLaunch() {
 
 		for(p in state.players) {
 			p.discoverAll();
-			playerData.push({p:p, sheeps:0, resChoices:[], unitChoices:[], isDead:false});
+			playerData.push({p:p, sheeps:0, resChoices:[], unitChoices:[], isDead:false, ocean:0, resChoiceMade:false, unitChoiceMade:false});
 			p.objectives.add(FAME_OBJ_ID, "Reach 1500 Fame", {visible:true});
 			p.objectives.add(SHEEP_OBJ_ID, "Reach 100 Sheep", {showOtherPlayers:true, goalVal:100, showProgressBar:true, val:0, visible:true});
 			p.setAILevel(5); // will be ignored for non-AI players
@@ -97,21 +106,16 @@ function onFirstLaunch() {
 }
 
 function updateDescriptionOfMod() {
-	var year = timeToYears(state.time);
 	state.scriptDesc =
 		"<p>"
 			+ "Your goal is to be the most famous and fluffy sheep in all the land! Ok, well, you do not have to be both, but that be cool, right? You win if you get 100 sheep or 1500 fame."
 		+ "</p>"
 		+ "<br />"
 		+ "<p align='center'><font face='BigTitle'>Current Rewards</font></p>"
-		+ "<p><font face='Title'>Resources                Units</font></p>"
+		+ "<p><font face='Title'>Resources</font></p>"
 		+ "<p>"
 	;
 
-	// var index = 0;
-	// while(index < max(CHOOSE_RES.length, CHOOSE_UNIT.length)) {
-
-	// }
 	for(r in CHOOSE_RES){
 		state.scriptDesc += "<b>" + r.name + ":</b> " + computeTotalReward(r.amt, r.mul) + "<br />";
 	}
@@ -149,6 +153,8 @@ function createButtons(name:String, cb:String, amt:Float, mul:Float) {
 function regularUpdate(dt : Float) {
 	if(isHost()) {
 		@split[
+			setupOceans(),
+
 			checkVictory(),
 
 			checkNewChoices(),
@@ -164,6 +170,23 @@ function regularUpdate(dt : Float) {
 	}
 
 	UPDATE_INDEX++;
+}
+
+function setupOceans() {
+	if(playerData[0].ocean != 0)
+		return;
+
+	for(d in playerData) {
+		var ocean = 0;
+		msg("Getting ocean for " + d.p);
+		for(o in oceans) {
+			if(o.home == d.p.getTownHall().zone.id) {
+				msg("Getting ocean: " + o.ocean);
+				d.ocean = o.ocean;
+				break;
+			}
+		}
+	}
 }
 
 function endGame() {
@@ -213,7 +236,7 @@ function checkTheDead() {
 function checkAI() {
 
 	var data = playerData[AI_INDEX];
-	if(data.p.isAI) {
+	if(data.p.isAI && !data.isDead) {
 		if(data.resChoices.length > 0) {
 			var choice = data.resChoices[randomInt(3)];
 			giveResourceReward(data.p, findResource(choice));
@@ -306,6 +329,10 @@ function checkNewChoices() {
 			if(c.isDead)
 				continue;
 
+			// allow the player to make a new choice
+			c.unitChoiceMade = false;
+			c.resChoiceMade = false;
+
 			var player = c.p;
 
 			var oldResChoices = c.resChoices.copy();
@@ -367,7 +394,7 @@ function clearChoices(p:Player, choices:Array<String>) {
 	}
 }
 
-function getplayerData(p:Player): {p:Player, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool} {
+function getplayerData(p:Player): {p:Player, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool, ocean:Int, resChoiceMade:Bool, unitChoiceMade:Bool} {
 	for(c in playerData) {
 		if(c.p == p) {
 			return c;
@@ -393,8 +420,15 @@ function computeTotalReward(amt:Float, mul:Float):Int {
  * [Host Only]
  */
 function giveResourceReward(p:Player, res:{res:ResourceKind, amt:Float, mul:Float, cb:String, name:String}) {
-	p.addResource(res.res, computeTotalReward(res.amt, res.mul));
 	var data = getplayerData(p);
+
+	// Players can press the button rapidly to send multiple requests. We guard against that here
+	if(data.resChoiceMade)
+		return;
+	data.resChoiceMade = true;
+
+	// Add the resources, clear the shown objectives, and then empty the choices list
+	p.addResource(res.res, computeTotalReward(res.amt, res.mul));
 	if(!p.isAI)
 		clearChoices(p, data.resChoices);
 	data.resChoices = [];
@@ -404,8 +438,21 @@ function giveResourceReward(p:Player, res:{res:ResourceKind, amt:Float, mul:Floa
  * [Host Only]
  */
 function giveUnitReward(p:Player, unit:{type:UnitKind, amt:Float, mul:Float, cb:String, name:String}) {
-	var units = p.getTownHall().zone.addUnit(unit.type, computeTotalReward(unit.amt, unit.mul), p, true);
 	var data = getplayerData(p);
+
+	// Players can press the button rapidly to send multiple requests. We guard against that here
+	if(data.unitChoiceMade)
+		return;
+	data.unitChoiceMade = true;
+
+	var total = computeTotalReward(unit.amt, unit.mul);
+	var units = [];
+	while(total > 0) {
+		units.push(unit.type);
+		total--;
+	}
+	drakkar(p, p.getTownHall().zone, getZone(data.ocean), 0, 0, units, 0.15);
+
 	if(!p.isAI)
 		clearChoices(p, data.unitChoices);
 	data.unitChoices = [];
@@ -495,6 +542,18 @@ function chooseVillager() {
 	invokeHost(hostVer(VILLAGER_REWARD.cb), ME_ARGS);
 }
 
+function chooseSpecterWarrior() {
+	invokeHost(hostVer(SPECTER_REWARD.cb), ME_ARGS);
+}
+
+function chooseSkirmisher() {
+	invokeHost(hostVer(SKIRMISHER_REWARD.cb), ME_ARGS);
+}
+
+function chooseKobold() {
+	invokeHost(hostVer(KOBOLD_REWARD.cb), ME_ARGS);
+}
+
 function chooseWarrior_host(p:Player) {
 	giveUnitReward(p, WARRIOR_REWARD);
 }
@@ -513,6 +572,18 @@ function chooseAxeWielder_host(p:Player) {
 
 function chooseVillager_host(p:Player) {
 	giveUnitReward(p, VILLAGER_REWARD);
+}
+
+function chooseSpecterWarrior_host(p:Player) {
+	giveUnitReward(p, SPECTER_REWARD);
+}
+
+function chooseKobold_host(p:Player) {
+	giveUnitReward(p, KOBOLD_REWARD);
+}
+
+function chooseSkirmisher_host(p:Player) {
+	giveUnitReward(p, SKIRMISHER_REWARD);
 }
 
 function msg(str:String) {
