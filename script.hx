@@ -1,5 +1,31 @@
+/**
+ * ===================================
+ * 		Sheep in Wolf's Clothing
+ *
+ * Player's compete on a cut-throat island to determine...who is the fluffiest, most famous
+ * sheep in all the land!
+ *
+ * Every two weeks players can choose between 3 resource rewards and 3 unit rewards. Each year
+ * these rewards increase in value. There are no buildings or resources on the map itself
+ * other than a few Pillars of Glory, which can be assigned two Heralds for fame.
+ *
+ * The player who reaches 1500 fame or 100 sheep in their land is the winner!
+ */
+
+/**
+ * Used for debugging and testing.
+ * All values should be FALSE before publishing to Steam workshop.
+ */
 DEBUG = {
+
+	// Shows debug messages
 	MESSAGES: true,
+
+	// The host starts with lots of units, good for checking for crashes late game.
+	PROTECT_HOST: false,
+
+	// Gives the host a lot of resources
+	RESOURCES: true,
 }
 
 var LORE_REWARD = {res:Resource.Lore, amt:60.0, mul:1.0, cb:"chooseLore", name:"Lore"};
@@ -22,7 +48,7 @@ var CHOOSE_RES = [
 
 var VILLAGER_REWARD = {type:Unit.Villager,				amt:3.0, mul:1.5, cb:"chooseVillager", name:"Villagers"};
 var WARRIOR_REWARD = {type:Unit.Warrior, 				amt:2.0, mul:1.0, cb:"chooseWarrior", name:"Warriors"};
-var AXE_WIELDER_REWARD = {type:Unit.AxeWielder, 		amt:2.0, mul:1.0, cb:"chooseAxeWielder", name:"Axe Wielders"};
+var AXE_WIELDER_REWARD = {type:Unit.AxeWielder, 		amt:2.0, mul:1.0, cb:"chooseAxeWielder", name:"Axe Throwers"};
 var SHIELD_BEARER_REWARD = {type:Unit.ShieldBearer, 	amt:2.0, mul:1.0, cb:"chooseShieldBearer", name:"Shield Bearers"};
 var SHEEP_REWARD = {type:Unit.Sheep, 					amt:2.0, mul:2.0, cb:"chooseSheep", name:"Sheep"};
 var SPECTER_REWARD = {type:Unit.SpecterWarrior, 		amt:2.0, mul:1.0, cb:"chooseSpecterWarrior", name:"Specter Warriors"};
@@ -40,10 +66,24 @@ var CHOOSE_UNIT = [
 	KOBOLD_REWARD,
 ];
 
+/**
+ * The maximum multiplier we can apply. If the game lasts
+ * until year 6 or later (fuck, just win already, this map
+ * isn't designed to take well over an hour), we will cap
+ * the multiplier for rewards at this value.
+ */
 var MAX_YEAR_MUL = 5;
 
+/**
+ * Is used to know when we should refresh the list of choices
+ * in a convenient to track way. Also ensures we don't present
+ * choices twice in the same increment.
+ */
 var CHOICE_INDEX = 0;
 
+/**
+ * Helper for passing the player into invokeHost calls.
+ */
 var ME_ARGS : Array<Dynamic> = [];
 
 var SHEEP_OBJ_ID = "SHEEPSHEEP";
@@ -51,6 +91,8 @@ var FAME_OBJ_ID = "FAMEFAME";
 var SHEEP_INDEX = 0;
 var AI_INDEX = 0;
 
+// The below are used for registering who won, and then delaying
+// ending the game for a while so players see that.
 var winningPlayer:Player = null;
 var winningTime = 0.0;
 var victoryMessage = "";
@@ -63,9 +105,22 @@ var UPDATE_INDEX = 0;
 var YEAR_INDEX = 0;
 
 var playerData : Array<{p:Player, sheeps:Int, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool, ocean:Int, resChoiceMade:Bool, unitChoiceMade:Bool}> = [];
+
+/**
+ * This is a map of home tiles to oceans next to the home tile. These are used to map Player objects
+ * to the appropriate pairing. Once a pairing is made, we can use the drakkar function to
+ * send units by boat.
+ *
+ * Ideally this would be a real Map datastructure, but we still don't have those yet :(
+ */
 var oceans = [{home:100, ocean:107}, {home:88, ocean:83}, {home:66, ocean:63},
 				{home:47, ocean:41}, {home:22, ocean:19}, {home:34, ocean:40},
 				{home:55, ocean:62}, {home:77, ocean:84}];
+
+/**
+ * Many functions can only be executed by the host, but sometimes we also need to know
+ * who the host player is when looping over all players for some one-off exceptions.
+ */
 var hostPlayer = null;
 
 function init() {
@@ -78,13 +133,19 @@ function onFirstLaunch() {
 	if(isHost()) {
 		hostPlayer = me();
 
+		// Allows assigning Villagers as Heralds at the four Pillars of Glory on the map
 		addRule(Rule.PillarOfGod);
+
+		// Makes the townhall produce more food. The values have been edited in the CDB
 		addRule(Rule.ExtraFoodProduce);
 
+		// Setup dom only victory
 		state.removeVictory(VictoryKind.VLore);
 		state.removeVictory(VictoryKind.VFame);
 		state.removeVictory(VictoryKind.VMoney);
 
+		// Make all players reveal the map, save their data for later use,
+		// create the victory objectives, and if AI, set their diffculty higher
 		for(p in state.players) {
 			p.discoverAll();
 			playerData.push({p:p, sheeps:0, resChoices:[], unitChoices:[], isDead:false, ocean:0, resChoiceMade:false, unitChoiceMade:false});
@@ -103,8 +164,30 @@ function onFirstLaunch() {
 	}
 
 	ME_ARGS.push(me());
+
+
+	// I had a crash that always happened at March 801, and it was frustrating to test.
+	// This spawns a ton of units so I can launch the mod and then do anything else for 12
+	// minutes to see if it crashed again rather than playing. The AI are really aggressive.
+	if(DEBUG.PROTECT_HOST) {
+		me().getTownHall().zone.addUnit(Unit.Warrior, 30, me());
+		me().getTownHall().zone.addUnit(Unit.Villager, 30, me());
+	}
+
+	// Used for testing crashes, tech, and more
+	if(DEBUG.RESOURCES) {
+		me().addResource(Resource.Wood, 10000);
+		me().addResource(Resource.Lore, 10000);
+		me().addResource(Resource.Food, 2000);
+	}
 }
 
+/**
+ * This will update the description of the mod under the Victory window.
+ *
+ * It will also show a list of reward values for resources and units,
+ * as that changes each year.
+ */
 function updateDescriptionOfMod() {
 	state.scriptDesc =
 		"<p>"
@@ -172,6 +255,10 @@ function regularUpdate(dt : Float) {
 	UPDATE_INDEX++;
 }
 
+/**
+ * Here we do a one time mapping of players to their home tile ID and the neighboring
+ * ocean where we will send drakkar ships of units from.
+ */
 function setupOceans() {
 	if(playerData[0].ocean != 0)
 		return;
@@ -189,12 +276,20 @@ function setupOceans() {
 	}
 }
 
+/**
+ * If someone won the game, we wait a short time before ending
+ * the game for everyone so players have a chance to see who won
+ * and trash talk :P
+ */
 function endGame() {
 	if(winningTime > 0 && winningTime + 10 < state.time) {
 		winningPlayer.customVictory(victoryMessage, lossMessage);
 	}
 }
 
+/**
+ * Given a resource name, will find the respective resource reward struct.
+ */
 function findResource(id:String) {
 	for(r in CHOOSE_RES) {
 		if(r.cb == id){
@@ -206,6 +301,9 @@ function findResource(id:String) {
 	return null;
 }
 
+/**
+ * Given a unit name, will find the respective unit reward struct.
+ */
 function findUnit(id:String) {
 	for(u in CHOOSE_UNIT) {
 		if(u.cb == id){
@@ -217,6 +315,11 @@ function findUnit(id:String) {
 	return null;
 }
 
+/**
+ * Checks for dead players, as we have no easy way to see who lost.
+ * We do this by checking against state.players, as defeated players
+ * are removed.
+ */
 function checkTheDead() {
 	@sync for(d in playerData) {
 		if(d.isDead)
@@ -233,6 +336,13 @@ function checkTheDead() {
 	}
 }
 
+/**
+ * [Host Only]
+ *
+ * If there are any AI, each update one of the 8 players will be checked.
+ * If they are an AI that is alive and they have unused choices to make they
+ * will make one of those choices.
+ */
 function checkAI() {
 
 	var data = playerData[AI_INDEX];
@@ -250,6 +360,9 @@ function checkAI() {
 	AI_INDEX = (AI_INDEX + 1) % 8;
 }
 
+/**
+ * If a player isn't dead, then we update their sheeps total
+ */
 function checkSheeps() {
 	for(d in playerData) {
 		if(d.isDead)
@@ -260,6 +373,9 @@ function checkSheeps() {
 
 /**
  * [Host Only]
+ *
+ * Checks to see if any player has reached the threshold for victory in sheep or fame.
+ * If no player has, then we just update the objectives progression.
  */
 function checkVictory() {
 	if(winningPlayer != null)
@@ -276,7 +392,7 @@ function checkVictory() {
 			victoryMessage = "You are a very shiny and famous sheep";
 			lossMessage = "You were not shiny enough";
 			d.p.objectives.setStatus(FAME_OBJ_ID, OStatus.Done);
-			d.p.genericNotify("You have won a fame victory! The game will end shortly. TAUNT YOUR ENEMIES! :D");
+			d.p.genericNotify("You have won a fame victory! TAUNT YOUR ENEMIES! :D The game will end shortly.");
 			for(p in state.players)
 				if(p == d.p)
 					continue;
@@ -319,6 +435,9 @@ function checkVictory() {
 
 /**
  * [Host Only]
+ *
+ * We present 3 resource rewards and 3 unit rewards to all players every 30 seconds.
+ * The rewards choices are random.
  */
 function checkNewChoices() {
 	if(state.time / 30 > CHOICE_INDEX) {
@@ -376,17 +495,20 @@ function checkNewChoices() {
 		}
 	}
 
-	if(YEAR_INDEX < timeToYears(state.time)) {
-		updateDescriptionOfMod();
-		for(p in state.players) {
-			p.genericNotify("Rewards are updated! Check the mod tab under the Victory Screen for details.");
-		}
-		YEAR_INDEX++;
-	}
+	// if(YEAR_INDEX < timeToYears(state.time)) {
+		// updateDescriptionOfMod();
+		// @sync for(p in state.players) {
+		// 	if(!p.isAI)
+		// 		p.genericNotify("Rewards are updated! Check the mod tab under the Victory Screen for details.");
+		// }
+	// 	YEAR_INDEX++;
+	// }
 }
 
 /**
  * [Host Only]
+ *
+ * Sets all the choices a player had not visible so they can't keep pressing the button.
  */
 function clearChoices(p:Player, choices:Array<String>) {
 	for(c in choices) {
@@ -394,6 +516,9 @@ function clearChoices(p:Player, choices:Array<String>) {
 	}
 }
 
+/**
+ * Given a player object, will return the PlayerData struct mapped to that player.
+ */
 function getplayerData(p:Player): {p:Player, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool, ocean:Int, resChoiceMade:Bool, unitChoiceMade:Bool} {
 	for(c in playerData) {
 		if(c.p == p) {
@@ -412,12 +537,19 @@ function timeToYears(time:Float):Int {
 	return toInt(time / 720.0) + 1;
 }
 
+/**
+ * Just applies all the various parameters to determine how much of something
+ * the player should get.
+ */
 function computeTotalReward(amt:Float, mul:Float):Int {
 	return toInt(amt * timeToYears(state.time) * mul);
 }
 
 /**
  * [Host Only]
+ *
+ * Gives the player the reward of resources they had chosen.
+ * Will also prevent the reward button from triggering more than once.
  */
 function giveResourceReward(p:Player, res:{res:ResourceKind, amt:Float, mul:Float, cb:String, name:String}) {
 	var data = getplayerData(p);
@@ -436,6 +568,9 @@ function giveResourceReward(p:Player, res:{res:ResourceKind, amt:Float, mul:Floa
 
 /**
  * [Host Only]
+ *
+ * Gives the player the reward of units they had chosen.
+ * Will also prevent the reward button from triggering more than once.
  */
 function giveUnitReward(p:Player, unit:{type:UnitKind, amt:Float, mul:Float, cb:String, name:String}) {
 	var data = getplayerData(p);
@@ -463,6 +598,9 @@ function hostVer(str:String) {
 }
 
 // =================== Resource Selection ======================
+// TODO: this could and should be compressed. While the
+// "chooseX" functions have to exist, the "chooseX_host" really
+// only needs one function. I was lazy when setting this up.
 
 function chooseIron() {
 	invokeHost(hostVer(IRON_REWARD.cb), ME_ARGS);
@@ -586,8 +724,25 @@ function chooseSkirmisher_host(p:Player) {
 	giveUnitReward(p, SKIRMISHER_REWARD);
 }
 
+/**
+ * This allows me to keep the debug messages in code,
+ * and also publish the mod to the steam workshop while
+ * only changing a DEBUG flag to prevent players from
+ * seeing annoying messages.
+ */
 function msg(str:String) {
 	if(DEBUG.MESSAGES) {
+		debug(str);
+	}
+}
+
+/**
+ * Some debug messages need to print, but I don't want them
+ * to print every single update as that would be annoying.
+ * This slows the print rate to a much smaller degree.
+ */
+function sometimesMsg(str:String) {
+	if(DEBUG.MESSAGES && UPDATE_INDEX % 5 == 0) {
 		debug(str);
 	}
 }
