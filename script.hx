@@ -10,6 +10,7 @@
  * other than a few Pillars of Glory, which can be assigned two Heralds for fame.
  *
  * The player who reaches 1500 fame or 100 sheep in their land is the winner!
+ * ====================================
  */
 
 /**
@@ -19,13 +20,13 @@
 DEBUG = {
 
 	// Shows debug messages
-	MESSAGES: true,
+	MESSAGES: false,
 
 	// The host starts with lots of units, good for checking for crashes late game.
 	PROTECT_HOST: false,
 
 	// Gives the host a lot of resources
-	RESOURCES: true,
+	RESOURCES: false,
 }
 
 var LORE_REWARD = {res:Resource.Lore, amt:60.0, mul:1.0, cb:"chooseLore", name:"Lore"};
@@ -46,14 +47,14 @@ var CHOOSE_RES = [
 	IRON_REWARD,
 ];
 
-var VILLAGER_REWARD = {type:Unit.Villager,				amt:3.0, mul:1.5, cb:"chooseVillager", name:"Villagers"};
-var WARRIOR_REWARD = {type:Unit.Warrior, 				amt:2.0, mul:1.0, cb:"chooseWarrior", name:"Warriors"};
-var AXE_WIELDER_REWARD = {type:Unit.AxeWielder, 		amt:2.0, mul:1.0, cb:"chooseAxeWielder", name:"Axe Throwers"};
-var SHIELD_BEARER_REWARD = {type:Unit.ShieldBearer, 	amt:2.0, mul:1.0, cb:"chooseShieldBearer", name:"Shield Bearers"};
-var SHEEP_REWARD = {type:Unit.Sheep, 					amt:2.0, mul:2.0, cb:"chooseSheep", name:"Sheep"};
-var SPECTER_REWARD = {type:Unit.SpecterWarrior, 		amt:2.0, mul:1.0, cb:"chooseSpecterWarrior", name:"Specter Warriors"};
-var SKIRMISHER_REWARD = {type:Unit.Skirmisher, 			amt:3.0, mul:1.25, cb:"chooseSkirmisher", name:"Skirmishers"};
-var KOBOLD_REWARD = {type:Unit.Kobold, 					amt:3.0, mul:1.5, cb:"chooseKobold", name:"Kobolds"};
+var VILLAGER_REWARD = {type:Unit.Villager,				amt:3.0, cb:"chooseVillager", name:"Villagers"};
+var WARRIOR_REWARD = {type:Unit.Warrior, 				amt:2.0, cb:"chooseWarrior", name:"Warriors"};
+var AXE_WIELDER_REWARD = {type:Unit.AxeWielder, 		amt:2.0, cb:"chooseAxeWielder", name:"Axe Throwers"};
+var SHIELD_BEARER_REWARD = {type:Unit.ShieldBearer, 	amt:2.0, cb:"chooseShieldBearer", name:"Shield Bearers"};
+var SHEEP_REWARD = {type:Unit.Sheep, 					amt:2.0, cb:"chooseSheep", name:"Sheep"};
+var SPECTER_REWARD = {type:Unit.SpecterWarrior, 		amt:2.0, cb:"chooseSpecterWarrior", name:"Specter Warriors"};
+var SKIRMISHER_REWARD = {type:Unit.Skirmisher, 			amt:3.0, cb:"chooseSkirmisher", name:"Skirmishers"};
+var KOBOLD_REWARD = {type:Unit.Kobold, 					amt:3.0, cb:"chooseKobold", name:"Kobolds"};
 
 var CHOOSE_UNIT = [
 	VILLAGER_REWARD,
@@ -67,12 +68,10 @@ var CHOOSE_UNIT = [
 ];
 
 /**
- * The maximum multiplier we can apply. If the game lasts
- * until year 6 or later (fuck, just win already, this map
- * isn't designed to take well over an hour), we will cap
- * the multiplier for rewards at this value.
+ * The maximum units that can be sent. This is because drakkar can only
+ * send so many units at one time before it crashes.
  */
-var MAX_YEAR_MUL = 5;
+var MAX_UNIT_SEND = 6;
 
 /**
  * Is used to know when we should refresh the list of choices
@@ -90,6 +89,9 @@ var SHEEP_OBJ_ID = "SHEEPSHEEP";
 var FAME_OBJ_ID = "FAMEFAME";
 var SHEEP_INDEX = 0;
 var AI_INDEX = 0;
+
+// What year we last updated the mod description in game
+var UPDATE_DESC_INDEX = -1;
 
 // The below are used for registering who won, and then delaying
 // ending the game for a while so players see that.
@@ -155,11 +157,11 @@ function onFirstLaunch() {
 		}
 
 		for(o in CHOOSE_RES) {
-			createButtons(o.name, o.cb, o.amt, o.mul);
+			createButtons(o.name, o.cb);
 		}
 
 		for(o in CHOOSE_UNIT) {
-			createButtons(o.name, o.cb, o.amt, o.mul);
+			createButtons(o.name, o.cb);
 		}
 	}
 
@@ -189,6 +191,12 @@ function onFirstLaunch() {
  * as that changes each year.
  */
 function updateDescriptionOfMod() {
+	if(UPDATE_DESC_INDEX >= timeToYears(state.time)) {
+		return;
+	}
+
+	UPDATE_DESC_INDEX++;
+
 	state.scriptDesc =
 		"<p>"
 			+ "Your goal is to be the most famous and fluffy sheep in all the land! Ok, well, you do not have to be both, but that be cool, right? You win if you get 100 sheep or 1500 fame."
@@ -200,7 +208,7 @@ function updateDescriptionOfMod() {
 	;
 
 	for(r in CHOOSE_RES){
-		state.scriptDesc += "<b>" + r.name + ":</b> " + computeTotalReward(r.amt, r.mul) + "<br />";
+		state.scriptDesc += "<b>" + r.name + ":</b> " + computeTotalReward(r.amt, r.mul, false) + "<br />";
 	}
 
 	state.scriptDesc +=
@@ -211,10 +219,13 @@ function updateDescriptionOfMod() {
 	;
 
 	for(u in CHOOSE_UNIT){
-		state.scriptDesc += "<b>" + u.name + ":</b> " + computeTotalReward(u.amt, u.mul) + "<br />";
+		state.scriptDesc += "<b>" + u.name + ":</b> " + computeTotalReward(u.amt, 0, true) + "<br />";
 	}
 
 	state.scriptDesc += "</p>";
+
+	for(p in state.players)
+		p.genericNotify("Check the victory screen for updated reward amounts each year!");
 }
 
 /**
@@ -222,7 +233,7 @@ function updateDescriptionOfMod() {
  * how many of each thing they will get by changing the name. Instead, we just create a button
  * for each year.
  */
-function createButtons(name:String, cb:String, amt:Float, mul:Float) {
+function createButtons(name:String, cb:String) {
 	@sync for(p in state.players) {
 		if(p.isAI) {
 			continue;
@@ -244,11 +255,11 @@ function regularUpdate(dt : Float) {
 
 			checkSheeps(),
 
-			checkAI(),
-
 			checkTheDead(),
 
 			endGame(),
+
+			updateDescriptionOfMod(),
 		];
 	}
 
@@ -297,7 +308,7 @@ function findResource(id:String) {
 		}
 	}
 
-	debug("NOT FOUND RESOURCE!");
+	msg("NOT FOUND RESOURCE!");
 	return null;
 }
 
@@ -306,12 +317,16 @@ function findResource(id:String) {
  */
 function findUnit(id:String) {
 	for(u in CHOOSE_UNIT) {
+		if(u == null) {
+			msg("why is find unit null?");
+			return null;
+		}
 		if(u.cb == id){
 			return u;
 		}
 	}
 
-	debug("NOT FOUND UNIT!");
+	msg("NOT FOUND UNIT!");
 	return null;
 }
 
@@ -330,7 +345,7 @@ function checkTheDead() {
 				found = true;
 		}
 		if(!found) {
-			debug(d.p + " Is dead!");
+			msg(d.p + " Is dead!");
 			d.isDead = true;
 		}
 	}
@@ -351,8 +366,9 @@ function checkAI() {
 			var choice = data.resChoices[randomInt(3)];
 			giveResourceReward(data.p, findResource(choice));
 		}
+
 		if(data.unitChoices.length > 0) {
-			var choice = data.unitChoices[randomInt(3)];
+			var choice = data.unitChoices[math.irandom(3)];
 			giveUnitReward(data.p, findUnit(choice));
 		}
 	}
@@ -365,9 +381,8 @@ function checkAI() {
  */
 function checkSheeps() {
 	for(d in playerData) {
-		if(d.isDead)
-			continue;
-		d.sheeps = d.p.capturedUnits.length;
+		if(!d.isDead)
+			d.sheeps = d.p.capturedUnits.length;
 	}
 }
 
@@ -441,16 +456,11 @@ function checkVictory() {
  */
 function checkNewChoices() {
 	if(state.time / 30 > CHOICE_INDEX) {
-		CHOICE_INDEX++;
 
 		// decide and show new choices
 		@sync for(c in playerData) {
 			if(c.isDead)
 				continue;
-
-			// allow the player to make a new choice
-			c.unitChoiceMade = false;
-			c.resChoiceMade = false;
 
 			var player = c.p;
 
@@ -492,17 +502,14 @@ function checkNewChoices() {
 					player.objectives.setVisible(c, false);
 				}
 			}
+
+			// allow the player to make a new choice
+			c.unitChoiceMade = false;
+			c.resChoiceMade = false;
 		}
 	}
 
-	// if(YEAR_INDEX < timeToYears(state.time)) {
-		// updateDescriptionOfMod();
-		// @sync for(p in state.players) {
-		// 	if(!p.isAI)
-		// 		p.genericNotify("Rewards are updated! Check the mod tab under the Victory Screen for details.");
-		// }
-	// 	YEAR_INDEX++;
-	// }
+	checkAI();
 }
 
 /**
@@ -520,13 +527,23 @@ function clearChoices(p:Player, choices:Array<String>) {
  * Given a player object, will return the PlayerData struct mapped to that player.
  */
 function getplayerData(p:Player): {p:Player, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool, ocean:Int, resChoiceMade:Bool, unitChoiceMade:Bool} {
+
+	if(p == null) {
+		msg("Why were we passed a null player?");
+		return null;
+	}
+
 	for(c in playerData) {
+		if(c == null){
+			msg("Uhhh, why is getPlayedData null?");
+			return null;
+		}
 		if(c.p == p) {
 			return c;
 		}
 	}
 
-	debug("Uhhhhhhhh, this player doesn't exist???");
+	msg("Uhhhhhhhh, this player doesn't exist???");
 	return null;
 }
 
@@ -534,15 +551,15 @@ function getplayerData(p:Player): {p:Player, resChoices:Array<String>, unitChoic
  * Returns a whole number of years that have passed.
  */
 function timeToYears(time:Float):Int {
-	return toInt(time / 720.0) + 1;
+	return toInt(time / 720.0);
 }
 
 /**
  * Just applies all the various parameters to determine how much of something
  * the player should get.
  */
-function computeTotalReward(amt:Float, mul:Float):Int {
-	return toInt(amt * timeToYears(state.time) * mul);
+function computeTotalReward(amt:Float, mul:Float, isUnits:Bool):Int {
+	return isUnits ? min(MAX_UNIT_SEND, toInt(amt + timeToYears(state.time))) : toInt(amt * (timeToYears(state.time) + 1) * mul);
 }
 
 /**
@@ -560,7 +577,7 @@ function giveResourceReward(p:Player, res:{res:ResourceKind, amt:Float, mul:Floa
 	data.resChoiceMade = true;
 
 	// Add the resources, clear the shown objectives, and then empty the choices list
-	p.addResource(res.res, computeTotalReward(res.amt, res.mul));
+	p.addResource(res.res, computeTotalReward(res.amt, res.mul, false));
 	if(!p.isAI)
 		clearChoices(p, data.resChoices);
 	data.resChoices = [];
@@ -572,15 +589,25 @@ function giveResourceReward(p:Player, res:{res:ResourceKind, amt:Float, mul:Floa
  * Gives the player the reward of units they had chosen.
  * Will also prevent the reward button from triggering more than once.
  */
-function giveUnitReward(p:Player, unit:{type:UnitKind, amt:Float, mul:Float, cb:String, name:String}) {
+function giveUnitReward(p:Player, unit:{type:UnitKind, amt:Float, cb:String, name:String}) {
 	var data = getplayerData(p);
+
+	if(unit == null) {
+		msg("Something went wrong, we got a null unit?");
+		return;
+	}
+
+	if(data == null) {
+		msg("Something went wrong, we got a null player data?");
+		return;
+	}
 
 	// Players can press the button rapidly to send multiple requests. We guard against that here
 	if(data.unitChoiceMade)
 		return;
 	data.unitChoiceMade = true;
 
-	var total = computeTotalReward(unit.amt, unit.mul);
+	var total = computeTotalReward(unit.amt, 0, true);
 	var units = [];
 	while(total > 0) {
 		units.push(unit.type);
