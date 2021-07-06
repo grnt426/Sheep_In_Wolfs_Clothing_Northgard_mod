@@ -104,7 +104,6 @@ var lossMessage = "";
  * Incremented once per call to regularUpdate. Used for sending messages irregularly.
  */
 var UPDATE_INDEX = 0;
-var YEAR_INDEX = 0;
 
 var playerData : Array<{p:Player, sheeps:Int, resChoices:Array<String>, unitChoices:Array<String>, isDead:Bool, ocean:Int, resChoiceMade:Bool, unitChoiceMade:Bool}> = [];
 
@@ -125,12 +124,35 @@ var oceans = [{home:100, ocean:107}, {home:88, ocean:83}, {home:66, ocean:63},
  */
 var hostPlayer = null;
 
+/**
+ * Constant/Enums for teams.
+ */
+var S_TEAM_FFA = "ffa";
+var S_TEAM_2_VERT = "2v2v2v2_vert";
+var S_TEAM_2_HORZ = "2v2v2v2_horz";
+var S_TEAM_4_VERT = "4v4_vert";
+var S_TEAM_4_HORZ = "4v4_horz";
+
+
+
+/**
+ * If teams are chosen, then we have fixed team creations that will be made at the start of the match.
+ * For ease of making sure we have teams in the right place, we team players up by location.
+ */
+var FIXED_TEAMS_SETUP = {
+	S_TEAM_2_VERT:[[100, 88], [77, 66], [55, 47], [34, 22]],
+	S_TEAM_2_HORZ:[[22, 47], [34, 55], [66, 88], [77, 100]],
+	S_TEAM_4_VERT:[[88, 100, 77, 66], [55, 47, 22, 34]],
+	S_TEAM_4_HORZ:[[22, 47, 66, 88], [100, 77, 55, 34]],
+};
+
 function init() {
 	if (state.time == 0)
 		onFirstLaunch();
 }
 
 function onFirstLaunch() {
+	msg("DEBUG IS ON");
 
 	if(isHost()) {
 		hostPlayer = me();
@@ -167,10 +189,6 @@ function onFirstLaunch() {
 
 	ME_ARGS.push(me());
 
-
-	// I had a crash that always happened at March 801, and it was frustrating to test.
-	// This spawns a ton of units so I can launch the mod and then do anything else for 12
-	// minutes to see if it crashed again rather than playing. The AI are really aggressive.
 	if(DEBUG.PROTECT_HOST) {
 		me().getTownHall().zone.addUnit(Unit.Warrior, 30, me());
 		me().getTownHall().zone.addUnit(Unit.Villager, 30, me());
@@ -229,7 +247,7 @@ function updateDescriptionOfMod() {
 }
 
 /**
- * Buttons are immutable once created, which is unfortate as we can't indicate to the players
+ * Buttons are immutable once created, which is unfortunate as we can't indicate to the players
  * how many of each thing they will get by changing the name. Instead, we just create a button
  * for each year.
  */
@@ -456,6 +474,7 @@ function checkVictory() {
  */
 function checkNewChoices() {
 	if(state.time / 30 > CHOICE_INDEX) {
+		CHOICE_INDEX++;
 
 		// decide and show new choices
 		@sync for(c in playerData) {
