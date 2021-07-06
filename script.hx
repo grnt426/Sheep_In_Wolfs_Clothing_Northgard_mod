@@ -127,23 +127,17 @@ var hostPlayer = null;
 /**
  * Constant/Enums for teams.
  */
-var S_TEAM_FFA = "ffa";
-var S_TEAM_2_VERT = "2v2v2v2_vert";
-var S_TEAM_2_HORZ = "2v2v2v2_horz";
-var S_TEAM_4_VERT = "4v4_vert";
-var S_TEAM_4_HORZ = "4v4_horz";
+var S_TEAM_FFA = {buttonId:"ffa", teams:[[]]};
+var S_TEAM_2_VERT = {buttonId:"team2vert", teams:[[100, 88], [77, 66], [55, 47], [34, 22]]};
+var S_TEAM_2_HORZ = {buttonId:"team2horz", teams:[[22, 47], [34, 55], [66, 88], [77, 100]]};
+var S_TEAM_4_VERT = {buttonId:"team4vert", teams:[[88, 100, 77, 66], [55, 47, 22, 34]]};
+var S_TEAM_4_HORZ = {buttonId:"team4horz", teams:[[22, 47, 66, 88], [100, 77, 55, 34]]};
 
-
-
-/**
- * If teams are chosen, then we have fixed team creations that will be made at the start of the match.
- * For ease of making sure we have teams in the right place, we team players up by location.
- */
-var FIXED_TEAMS_SETUP = {
-	S_TEAM_2_VERT:[[100, 88], [77, 66], [55, 47], [34, 22]],
-	S_TEAM_2_HORZ:[[22, 47], [34, 55], [66, 88], [77, 100]],
-	S_TEAM_4_VERT:[[88, 100, 77, 66], [55, 47, 22, 34]],
-	S_TEAM_4_HORZ:[[22, 47, 66, 88], [100, 77, 55, 34]],
+var TEAM_DATA = {
+	chosenTeam: S_TEAM_FFA,
+	buttonPressed: false,
+	chooseTime: 15,
+	setupFinished: false,
 };
 
 function init() {
@@ -185,6 +179,12 @@ function onFirstLaunch() {
 		for(o in CHOOSE_UNIT) {
 			createButtons(o.name, o.cb);
 		}
+
+		hostPlayer.objectives.add(S_TEAM_FFA.buttonId, "Free for All", {visible:true}, {name:"Free for All", action:"ffateambutton"});
+		hostPlayer.objectives.add(S_TEAM_2_HORZ.buttonId, "Adjacent Ally", {visible:true}, {name:"2v2v2v2 Adjacent", action:"horz2teambutton"});
+		hostPlayer.objectives.add(S_TEAM_2_VERT.buttonId, "Ally Opposite", {visible:true}, {name:"2v2v2v2 Opposite", action:"vert2teambutton"});
+		hostPlayer.objectives.add(S_TEAM_4_HORZ.buttonId, "Adjacent Allies", {visible:true}, {name:"4v4 Adjacent", action:"horz4teambutton"});
+		hostPlayer.objectives.add(S_TEAM_4_VERT.buttonId, "Grouped Allies", {visible:true}, {name:"4v4 Grouped", action:"vert4teambutton"});
 	}
 
 	ME_ARGS.push(me());
@@ -265,6 +265,8 @@ function createButtons(name:String, cb:String) {
 function regularUpdate(dt : Float) {
 	if(isHost()) {
 		@split[
+			handleTeams(),
+
 			setupOceans(),
 
 			checkVictory(),
@@ -282,6 +284,47 @@ function regularUpdate(dt : Float) {
 	}
 
 	UPDATE_INDEX++;
+}
+
+function handleTeams() {
+
+	if(TEAM_DATA.setupFinished)
+		return;
+
+	else {
+		if(TEAM_DATA.buttonPressed) {
+
+			for(team in TEAM_DATA.chosenTeam.teams) {
+				var leader = null;
+				for(loc in team) {
+					if(leader == null) {
+						leader = getZone(loc).owner;
+					}
+					else {
+						setAlly(getZone(loc).owner, leader);
+					}
+				}
+			}
+
+			cleanupTeamButtons();
+			TEAM_DATA.setupFinished = true;
+		}
+
+		// If the host doesn't choose in time, we default to FFA
+		else if(state.time > TEAM_DATA.chooseTime) {
+			cleanupTeamButtons();
+			TEAM_DATA.setupFinished = true;
+		}
+	}
+}
+
+
+function cleanupTeamButtons() {
+	hostPlayer.objectives.setVisible(S_TEAM_FFA.buttonId, false);
+	hostPlayer.objectives.setVisible(S_TEAM_2_HORZ.buttonId, false);
+	hostPlayer.objectives.setVisible(S_TEAM_2_VERT.buttonId, false);
+	hostPlayer.objectives.setVisible(S_TEAM_4_HORZ.buttonId, false);
+	hostPlayer.objectives.setVisible(S_TEAM_4_VERT.buttonId, false);
 }
 
 /**
@@ -473,7 +516,14 @@ function checkVictory() {
  * The rewards choices are random.
  */
 function checkNewChoices() {
-	if(state.time / 30 > CHOICE_INDEX) {
+
+	// we don't want the game to progress while the host is choosing teams
+	// Also, we don't want the host to be overwhelmed with buttons.
+	if(!TEAM_DATA.setupFinished) {
+		return;
+	}
+
+	else if(state.time / 30 > CHOICE_INDEX) {
 		CHOICE_INDEX++;
 
 		// decide and show new choices
@@ -641,6 +691,41 @@ function giveUnitReward(p:Player, unit:{type:UnitKind, amt:Float, cb:String, nam
 
 function hostVer(str:String) {
     return str + "_host";
+}
+
+function horz4teambutton() {
+	if(TEAM_DATA.buttonPressed)
+		return;
+	TEAM_DATA.chosenTeam = S_TEAM_4_HORZ;
+	TEAM_DATA.buttonPressed = true;
+}
+
+function vert4teambutton() {
+	if(TEAM_DATA.buttonPressed)
+		return;
+	TEAM_DATA.chosenTeam = S_TEAM_4_VERT;
+	TEAM_DATA.buttonPressed = true;
+}
+
+
+function horz2teambutton() {
+	if(TEAM_DATA.buttonPressed)
+		return;
+	TEAM_DATA.chosenTeam = S_TEAM_2_HORZ;
+	TEAM_DATA.buttonPressed = true;
+}
+
+function vert2teambutton() {
+	if(TEAM_DATA.buttonPressed)
+		return;
+	TEAM_DATA.chosenTeam = S_TEAM_2_VERT;
+	TEAM_DATA.buttonPressed = true;
+}
+
+function ffateambutton() {
+	if(TEAM_DATA.buttonPressed)
+		return;
+	TEAM_DATA.buttonPressed = true;
 }
 
 // =================== Resource Selection ======================
